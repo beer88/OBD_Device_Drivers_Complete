@@ -1,0 +1,26 @@
+# Temporary files
+*.log
+*.tmp
+*.bak
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Arduino / ESP32 build files
+*.bin
+*.elf
+*.map
+
+# IDE files
+.vscode/
+.idea/
+
+# Compressed files
+*.zip
+*.rar
+*.7z
+
+# Backup files
+*.backup
+*.old

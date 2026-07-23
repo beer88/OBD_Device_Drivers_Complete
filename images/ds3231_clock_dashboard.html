@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DS3231 · Offline Clock Module</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-0:#081611;
+    --bg-1:#0d2018;
+    --panel:#102821;
+    --panel-2:#0d221b;
+    --copper:#c8804b;
+    --copper-bright:#e2a06b;
+    --copper-line:rgba(200,128,75,.28);
+    --ink:#f1ede1;
+    --ink-dim:#8fa89b;
+    --ink-faint:#5c7568;
+    --led-amber:#ffb238;
+    --led-off:rgba(255,178,56,.09);
+    --led-glow:rgba(255,178,56,.55);
+    --good:#5ad48a;
+    --off:#3f544a;
+    --u: clamp(6px, 1.55vw, 11px);
+    --radius: 18px;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:1.1rem;
+    padding:2.2rem 1.2rem;
+    background:
+      radial-gradient(circle at 18% 12%, rgba(200,128,75,.10), transparent 42%),
+      radial-gradient(circle at 82% 88%, rgba(90,212,138,.06), transparent 45%),
+      linear-gradient(160deg, var(--bg-0), var(--bg-1) 60%, var(--bg-0));
+    font-family:'IBM Plex Sans', sans-serif;
+    color:var(--ink);
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:0.001s !important; transition-duration:0.001s !important;}
+  }
+
+  .board{
+    position:relative;
+    width:min(880px, 100%);
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.02), transparent 20%),
+      var(--panel);
+    border:1px solid var(--copper-line);
+    border-radius:var(--radius);
+    box-shadow:
+      0 30px 70px -25px rgba(0,0,0,.65),
+      inset 0 1px 0 rgba(255,255,255,.03);
+    padding:1.9rem 2.1rem 1.6rem;
+    overflow:hidden;
+  }
+
+  .board::before{
+    content:"";
+    position:absolute; inset:0;
+    background-image:
+      repeating-linear-gradient(0deg, transparent, transparent 27px, rgba(200,128,75,.035) 28px),
+      repeating-linear-gradient(90deg, transparent, transparent 27px, rgba(200,128,75,.035) 28px);
+    pointer-events:none;
+  }
+
+  .screw{
+    position:absolute; width:16px; height:16px; border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, #dfe6e2, #8b978f 55%, #4b544f 100%);
+    box-shadow:0 2px 4px rgba(0,0,0,.5), inset 0 0 0 2px rgba(0,0,0,.25);
+  }
+  .screw.tl{top:14px; left:14px;} .screw.tr{top:14px; right:14px;}
+  .screw.bl{bottom:14px; left:14px;} .screw.br{bottom:14px; right:14px;}
+
+  .board-header{
+    position:relative;
+    display:flex; align-items:center; justify-content:space-between; gap:1rem;
+    flex-wrap:wrap;
+    padding:0 1.4rem;
+  }
+  .brand{display:flex; align-items:center; gap:.7rem;}
+  .brand-mark{
+    font-size:1.3rem; color:var(--copper-bright);
+    filter:drop-shadow(0 0 6px rgba(200,128,75,.5));
+  }
+  .brand-title{font-weight:700; letter-spacing:.06em; font-size:.86rem;}
+  .brand-sub{font-family:'IBM Plex Mono',monospace; font-size:.63rem; letter-spacing:.09em; color:var(--ink-faint); margin-top:2px;}
+
+  .status-leds{display:flex; gap:1.1rem; font-family:'IBM Plex Mono',monospace; font-size:.68rem; letter-spacing:.08em; color:var(--ink-dim);}
+  .led-item{display:flex; align-items:center; gap:.4rem;}
+  .dot{width:7px; height:7px; border-radius:50%; display:inline-block;}
+  .dot.good{background:var(--good); box-shadow:0 0 7px var(--good);}
+  .dot.off{background:var(--off);}
+
+  .hr{
+    position:relative;
+    height:1px; margin:1.15rem 1.4rem;
+    background:linear-gradient(90deg, transparent, var(--copper-line) 12%, var(--copper-line) 88%, transparent);
+  }
+
+  .clock-stage{
+    position:relative;
+    display:grid;
+    grid-template-columns:auto 1fr;
+    align-items:center;
+    gap:2.4rem;
+    padding:.3rem 1.4rem .6rem;
+  }
+
+  .date-card{border-right:1px solid var(--copper-line); padding-right:2rem;}
+  .label{font-family:'IBM Plex Mono',monospace; font-size:.62rem; letter-spacing:.14em; color:var(--ink-faint);}
+  .value{font-family:'IBM Plex Mono',monospace; font-size:1.05rem; font-weight:500; margin-top:.25rem; letter-spacing:.02em;}
+  .value.accent{color:var(--copper-bright);}
+
+  .seven-seg-wrap{display:flex; flex-direction:column; align-items:center; justify-self:center;}
+
+  .digits{display:flex; align-items:center; gap:calc(var(--u)*0.9);}
+
+  .digit{position:relative; width:calc(var(--u)*5.4); height:calc(var(--u)*10.6);}
+  .seg{
+    position:absolute;
+    background:var(--led-off);
+    transition:background .12s ease, box-shadow .12s ease;
+  }
+  .seg.on{background:var(--led-amber); box-shadow:0 0 calc(var(--u)*1.1) var(--led-glow), 0 0 calc(var(--u)*2.6) var(--led-glow);}
+
+  .seg.h{left:calc(var(--u)*0.6); width:calc(var(--u)*4.2); height:var(--u);
+    clip-path:polygon(13% 0,87% 0,100% 50%,87% 100%,13% 100%,0 50%);}
+  .seg.v{width:var(--u); height:calc(var(--u)*4.55);
+    clip-path:polygon(0 11%,50% 0,100% 11%,100% 89%,50% 100%,0 89%);}
+
+  .seg.a{top:0;}
+  .seg.g{top:calc(var(--u)*4.8);}
+  .seg.d{top:calc(var(--u)*9.6);}
+  .seg.f{top:calc(var(--u)*0.62); left:0;}
+  .seg.b{top:calc(var(--u)*0.62); right:0;}
+  .seg.e{top:calc(var(--u)*5.5); left:0;}
+  .seg.c{top:calc(var(--u)*5.5); right:0;}
+
+  .colon{display:flex; flex-direction:column; gap:calc(var(--u)*2.1); justify-content:center; height:calc(var(--u)*10.6); margin:0 calc(var(--u)*0.15);}
+  .colon span{width:calc(var(--u)*0.85); height:calc(var(--u)*0.85); border-radius:50%; background:var(--led-off); transition:background .12s, box-shadow .12s;}
+  .colon span.on{background:var(--led-amber); box-shadow:0 0 calc(var(--u)*1.1) var(--led-glow), 0 0 calc(var(--u)*2.2) var(--led-glow);}
+
+  .clock-meta{display:flex; align-items:center; gap:.8rem; margin-top:.9rem; font-family:'IBM Plex Mono',monospace;}
+  #ampmVal{font-size:.78rem; letter-spacing:.14em; color:var(--copper-bright); min-width:2.2em;}
+  .toggle-btn{
+    font-family:'IBM Plex Mono',monospace; font-size:.66rem; letter-spacing:.1em;
+    background:var(--panel-2); color:var(--ink-dim); border:1px solid var(--copper-line);
+    border-radius:20px; padding:.35rem .8rem; cursor:pointer; transition:all .15s ease;
+  }
+  .toggle-btn:hover{color:var(--ink); border-color:var(--copper);}
+  .toggle-btn:focus-visible{outline:2px solid var(--copper-bright); outline-offset:2px;}
+
+  .stats-strip{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:1rem;
+    padding:.4rem 1.4rem;
+  }
+  .stat{
+    display:flex; align-items:center; gap:.65rem;
+    background:var(--panel-2); border:1px solid var(--copper-line);
+    border-radius:12px; padding:.7rem .8rem;
+  }
+  .stat-icon{font-size:1.05rem; filter:saturate(0.7) opacity(.85);}
+  .stat-label{font-family:'IBM Plex Mono',monospace; font-size:.6rem; letter-spacing:.1em; color:var(--ink-faint);}
+  .stat-value{font-family:'IBM Plex Mono',monospace; font-size:.9rem; margin-top:2px; color:var(--ink);}
+
+  .board-footer{
+    display:flex; justify-content:space-between; flex-wrap:wrap; gap:.6rem 1.4rem;
+    padding:0 1.4rem;
+    font-family:'IBM Plex Mono',monospace; font-size:.66rem; letter-spacing:.06em; color:var(--ink-dim);
+  }
+  .good-text{color:var(--good);}
+
+  .disclaimer{
+    width:min(880px, 100%);
+    font-family:'IBM Plex Mono',monospace;
+    font-size:.68rem; line-height:1.5; color:var(--ink-faint);
+    text-align:center; padding:0 1rem;
+  }
+
+  @media (max-width:640px){
+    .clock-stage{grid-template-columns:1fr; gap:1.2rem;}
+    .date-card{border-right:none; border-bottom:1px solid var(--copper-line); padding-right:0; padding-bottom:1rem; text-align:center;}
+    .stats-strip{grid-template-columns:repeat(2,1fr);}
+    :root{--u:clamp(7px, 3.6vw, 10px);}
+  }
+</style>
+</head>
+<body>
+
+  <div class="board">
+    <span class="screw tl"></span><span class="screw tr"></span>
+    <span class="screw bl"></span><span class="screw br"></span>
+
+    <header class="board-header">
+      <div class="brand">
+        <span class="brand-mark">◍</span>
+        <div>
+          <div class="brand-title">DS3231 · OFFLINE CLOCK MODULE</div>
+          <div class="brand-sub"> &nbsp;/&nbsp; DRIVEEASY &nbsp;/&nbsp; REV. A</div>
+        </div>
+      </div>
+      <div class="status-leds">
+        <span class="led-item"><span class="dot good"></span>RTC</span>
+        <span class="led-item"><span class="dot good"></span>BATT</span>
+        <span class="led-item"><span class="dot off"></span>ALARM</span>
+      </div>
+    </header>
+
+    <div class="hr"></div>
+
+    <main class="clock-stage">
+      <div class="date-card">
+        <div class="label">DATE</div>
+        <div class="value" id="dateVal">--/--/----</div>
+        <div class="label" style="margin-top:1.1rem">DAY</div>
+        <div class="value accent" id="dayVal">-------</div>
+      </div>
+
+      <div class="seven-seg-wrap">
+        <div class="digits" id="digits"></div>
+        <div class="clock-meta">
+          <span id="ampmVal">--</span>
+          <button id="formatToggle" class="toggle-btn" aria-label="Toggle 12/24 hour format">24H</button>
+        </div>
+      </div>
+    </main>
+
+    <div class="hr"></div>
+
+    <section class="stats-strip">
+      <div class="stat"><span class="stat-icon">🌡</span><div><div class="stat-label">TEMP</div><div class="stat-value">--</div></div></div>
+      <div class="stat"><span class="stat-icon">💧</span><div><div class="stat-label">HUMIDITY</div><div class="stat-value">-- %</div></div></div>
+      <div class="stat"><span class="stat-icon">⏱</span><div><div class="stat-label">PRESSURE</div><div class="stat-value">-- hPa</div></div></div>
+      <div class="stat"><span class="stat-icon">⛰</span><div><div class="stat-label">ALTITUDE</div><div class="stat-value">-- m</div></div></div>
+    </section>
+
+    <div class="hr"></div>
+
+    <footer class="board-footer">
+      <span>RTC STATUS: <b class="good-text">OK</b></span>
+      <span>UNIX: <span id="unixVal">--</span></span>
+      <span>MODE: <span id="modeVal">OFFLINE · SYSTEM CLOCK</span></span>
+    </footer>
+  </div>
+
+  <p class="disclaimer">
+    This page mirrors the on-device OLED layout and runs fully offline in your browser, driven by your system clock — no server calls.
+    TEMP / HUMIDITY / PRESSURE / ALTITUDE stay at "--" here since no sensor is wired to the page; on the real DS3231 module, TEMP reads live from its built-in sensor.
+  </p>
+
+<script>
+(function(){
+  const SEGMENTS = {
+    '0':['a','b','c','d','e','f'],
+    '1':['b','c'],
+    '2':['a','b','g','e','d'],
+    '3':['a','b','g','c','d'],
+    '4':['f','g','b','c'],
+    '5':['a','f','g','c','d'],
+    '6':['a','f','g','e','c','d'],
+    '7':['a','b','c'],
+    '8':['a','b','c','d','e','f','g'],
+    '9':['a','b','c','d','f','g']
+  };
+  const SEG_NAMES = ['a','b','c','d','e','f','g'];
+
+  const digitsWrap = document.getElementById('digits');
+  const layout = ['h1','h2','colon','m1','m2','colon','s1','s2'];
+  const digitEls = {};
+
+  layout.forEach((key, i) => {
+    if (key === 'colon') {
+      const c = document.createElement('div');
+      c.className = 'colon';
+      c.innerHTML = '<span class="dot-top"></span><span class="dot-bottom"></span>';
+      digitsWrap.appendChild(c);
+    } else {
+      const d = document.createElement('div');
+      d.className = 'digit';
+      SEG_NAMES.forEach(seg => {
+        const isH = (seg === 'a' || seg === 'g' || seg === 'd');
+        const s = document.createElement('div');
+        s.className = 'seg ' + (isH ? 'h' : 'v') + ' ' + seg;
+        d.appendChild(s);
+      });
+      digitsWrap.appendChild(d);
+      digitEls[key] = d;
+    }
+  });
+
+  function setDigit(el, charDigit) {
+    const active = SEGMENTS[charDigit] || [];
+    SEG_NAMES.forEach(seg => {
+      const node = el.querySelector('.' + seg);
+      if (!node) return;
+      node.classList.toggle('on', active.includes(seg));
+    });
+  }
+
+  const dateVal = document.getElementById('dateVal');
+  const dayVal = document.getElementById('dayVal');
+  const ampmVal = document.getElementById('ampmVal');
+  const unixVal = document.getElementById('unixVal');
+  const formatToggle = document.getElementById('formatToggle');
+  const colons = () => document.querySelectorAll('.colon span');
+
+  let use12h = false;
+  formatToggle.addEventListener('click', () => {
+    use12h = !use12h;
+    formatToggle.textContent = use12h ? '12H' : '24H';
+    tick();
+  });
+
+  const DAY_NAMES = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
+
+  function pad(n){ return n < 10 ? '0' + n : '' + n; }
+
+  function tick(){
+    const now = new Date();
+    let h = now.getHours();
+    let ampmText = '';
+
+    if (use12h) {
+      ampmText = h >= 12 ? 'PM' : 'AM';
+      h = h % 12;
+      if (h === 0) h = 12;
+    }
+
+    const hh = pad(h), mm = pad(now.getMinutes()), ss = pad(now.getSeconds());
+
+    setDigit(digitEls.h1, hh[0]);
+    setDigit(digitEls.h2, hh[1]);
+    setDigit(digitEls.m1, mm[0]);
+    setDigit(digitEls.m2, mm[1]);
+    setDigit(digitEls.s1, ss[0]);
+    setDigit(digitEls.s2, ss[1]);
+
+    ampmVal.textContent = use12h ? ampmText : '24H FMT';
+
+    const dd = pad(now.getDate()), mo = pad(now.getMonth()+1), yyyy = now.getFullYear();
+    dateVal.textContent = dd + '/' + mo + '/' + yyyy;
+    dayVal.textContent = DAY_NAMES[now.getDay()];
+
+    unixVal.textContent = Math.floor(now.getTime()/1000);
+
+    const on = now.getSeconds() % 2 === 0;
+    colons().forEach(c => c.classList.toggle('on', on));
+  }
+
+  tick();
+  setInterval(tick, 1000);
+})();
+</script>
+</body>
+</html>
